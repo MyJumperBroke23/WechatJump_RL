@@ -12,8 +12,6 @@ from scoreCheck import getScore
 def multi_scale_search(pivot, screen, range=0.3, num=10):
     H, W = screen.shape[:2]
     h, w = pivot.shape[:2]
-    #cv2.imshow("Screen", screen)
-    #cv2.waitKey(5000)
 
     found = None
     try:
@@ -113,11 +111,6 @@ class WechatAutoJump(object):
         return distance
 
     def getDistance(self):
-        #if getScore() == -10:
-          #  print("SCORE WRONG")
-           # os.system("adb shell input tap 550 1700")
-           # time.sleep(0.7)
-           # self.get_current_state()
         self.state = self.get_current_state()
         self.player_pos = self.get_player_position(self.state)
         try:
@@ -125,12 +118,7 @@ class WechatAutoJump(object):
             print('fast-search, step: %04d' % self.step)
         except UnboundLocalError:
             self.target_pos = self.get_target_position(self.state, self.player_pos)
-            #print('multiscale-search, step: %04d' % self.step)
-        #except Exception:
-            #os.system("adb shell input tap 550 1700")
-            #time.sleep(0.7)
-            #self.get_current_state()
-            #self.getDistance()
+            print('multiscale-search, step: %04d' % self.step)
         return self.distance(self.player_pos, self.target_pos)
 
 

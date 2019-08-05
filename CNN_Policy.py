@@ -10,7 +10,7 @@ import os
 from torch.distributions import Normal
 from scoreCheck import getReward, getScore
 from preprocess import getLessProcessed, getImage
-
+from CNN_DQN import onDeath
 
 class CNN_Policy(nn.Module):
     def __init__(self, output_dim):
@@ -38,42 +38,43 @@ test_length = 100
 initial_variance = 40
 final_variance = 1
 variance_decay = 5000
+model = CNN_Policy(1)
+learning_rate = 1e-4
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 
-def test():
-    model.eval()
-    for episode in range(num_episodes):
-        state = torch.Tensor(getLessProcessed()).unsqueeze(0)
-        state_shape = state.shape
-        state = state.view(state_shape[0], state_shape[3], state_shape[1], state_shape[2])
-        action = model(state)
-        os.system("adb shell input swipe 500 500 500 500 " + str(int(action)))
-        time.sleep(1)
-
-
-def trainJump(save_as, curr_checkpoint):
+def trainJump(save, save_as=None, curr_checkpoint=None):
     model.train()
     for episode in range(num_episodes):
-        variance = final_variance + (initial_variance - final_variance) * \
-                        math.exp(-1. * episode / variance_decay)
         time.sleep(1.2)
         prev_score = getScore()
+
         if episode % 10 == 0:
             print("Score:", prev_score)
             print("-----------------------------------------")
             print("Episode:", episode)
+
+        # Get state
         state = torch.Tensor(getLessProcessed()).unsqueeze(0)
         state_shape = state.shape
         state = state.view(state_shape[0], state_shape[3], state_shape[1], state_shape[2])
+
+        # Construct distribution based on calculated mean and variance
         mean = model(state)
+        variance = final_variance + (initial_variance - final_variance) * \
+                        math.exp(-1. * episode / variance_decay)
         if episode % 10 == 0:
             print("Mean:", float(mean), "Deviation:", float(variance))
         m = Normal(mean, variance)
+
+        # Sample and perform action
         action = m.sample()
         if episode % 10 == 0:
             print("Action:", action)
         os.system("adb shell input swipe 500 500 500 500 " + str(int(action)))
         time.sleep(0.5)
+
+        # Get reward and optimize model
         reward = getReward(prev_score)
         if reward >= 2:
             reward = 10
@@ -88,50 +89,17 @@ def trainJump(save_as, curr_checkpoint):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
         if episode % 10 == 0:
             print("-----------------------------------------")
 
-        if (episode + 1) % 1001 == 0:
-            save = {
-                'state_dict': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-            }
-            file_name = save_as + str((episode // 1000) + curr_checkpoint) + ".pth"
-            torch.save(save, file_name)
+        if save:
+            if (episode + 1) % 1001 == 0:
+                save_file = {
+                    'state_dict': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                }
+                file_name = save_as + str((episode // 1000) + curr_checkpoint) + ".pth"
+                torch.save(save_file, file_name)
 
 
-def onDeath():
-    time.sleep(1.9)
-    if getScore() == -10:
-        os.system("adb shell input tap 550 1700")
-        time.sleep(0.5)
-    else:
-        image = getImage()
-        thing = image[1000, 200] == [255, 255, 255]
-        if (thing[0] == True and thing[1] == True and thing[2] == True):
-            os.system("adb shell input tap 200 1400")
-            time.sleep(0.1)
-            os.system("adb shell input tap 550 1700")
-
-
-save = torch.load("models/CNN_Policy_Scratch33.pth")
-model = CNN_Policy(1)
-model.load_state_dict(save["state_dict"], strict=False)
-
-learning_rate = 1e-4
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-optimizer.load_state_dict(save['optimizer'])
-
-
-trainJump("models/CNN_Policy_Scratch", 33)
-
-
-
-
-'''
-Jump:
-
-state = torch.load("Jump7.pth")
-model.load_state_dict(state["state_dict"])
-optimizer.load_state_dict(state["optimizer"])
-'''

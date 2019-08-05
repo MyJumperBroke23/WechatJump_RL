@@ -1,16 +1,12 @@
 '''
 Score will be checked before and after every action to calculate reward
-Game Over will return score of 0
+Game Over will return score of -10
 Otherwise pass in previous score and return difference
 '''
 
 from preprocess import getImage
 import cv2 as cv
 import numpy as np
-try:
-    from PIL import Image
-except ImportError:
-    import Image
 
 
 def getReward(prev_score):
@@ -26,13 +22,17 @@ def getScore():
     getImage()
     image = cv.imread('/Users/alex/PycharmProjects/Wechat_Jump_RL/state.png')
 
+    # Get part of the screen where the score is
     scoreImg = image[400:490, :]
+
+    # Get background color and remove it, change numbers to white
     upper, lower = scoreImg[0][0], scoreImg[89][1079]
     mask = cv.inRange(scoreImg, lower, upper)
     mask = cv.bitwise_not(mask)
     scoreImg[mask == 0] = [0,0,0]
     scoreImg[mask > 0] = [255,255,255]
 
+    # Find location of numbers and append them to list
     locations = [] # List where index 0 corresponds to location where 1 is found, index 1 is where 2 is found, etc.
     for number in range(10):
         path = 'resource/numbers/' + str(number) + ".png"

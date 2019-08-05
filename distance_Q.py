@@ -9,6 +9,8 @@ import numpy as np
 import os
 from scoreCheck import getReward, getScore
 from distance import get_distance
+from CNN_DQN import onDeath, ReplayMemory, optimize_model
+
 
 class DQN(nn.Module):
     def __init__(self, output_dim):
@@ -24,7 +26,6 @@ class DQN(nn.Module):
         x = F.relu(self.linear3(x))
         x = self.linear4(x)
         return x
-
 
 
 final_epsilon = 0.005
@@ -64,66 +65,47 @@ num_episodes = 5000
 
 test_length = 100
 
+memory = ReplayMemory(128)
 
 
-
-def trainJump(save_as, curr_checkpoint):
+def trainJump(save, save_as=None, curr_checkpoint=None):
     model.train()
     for episode in range(num_episodes):
+        prev_score = getScore()
         print("-----------------------------------------")
         print("Episode:", episode)
-        state = get_distance() / 4
-        prev_score = getScore()
-        print("Distance:", state)
-        state = np.array([state])
-        state = torch.from_numpy(state)
-        state = state.float()
+
+        # Get state
+        state = torch.Tensor(get_distance())
+
+        # Select action based off state
         node_activated, action = select_action(state)
         os.system("adb shell input swipe 500 500 500 500 " + str(action))
+
+        # Optimize model
+        optimize_model()  # Optimize here to save time
+
+        # Get reward and push state, node_activated, and actual_reward to memory
         time.sleep(0.5)
         actual_reward = getReward(prev_score)
         print("Node Activated:", node_activated, "Action:", action)
         if actual_reward >= 2:
             actual_reward = 10
         elif actual_reward < 0:
-            time.sleep(2.1)
-            if (getScore() == -10):
-                os.system("adb shell input tap 550 1700")
-                time.sleep(0.5)
-        # memory.push(state, node_activated, actual_reward)
-        predicted_reward = model(state).view(20)[node_activated]
+            onDeath()
+        memory.push(state, node_activated, actual_reward)
+
+        # Print difference between predicted and actual rewards
+        predicted_reward = model(state).view(16)[node_activated]
         print("Predicted Reward:", float(predicted_reward), "Actual Reward:", actual_reward)
-        loss = loss_fn(actual_reward, predicted_reward)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
         print("-----------------------------------------")
 
-        # Make sure things are fine
-        '''
-        things = [i for i in range(5)]
-        if (episode % 1000) in things:
-            print("Episode", episode)
-            print("Reward:", actual_reward)
-        '''
+        if save:
+            if (episode + 1) % 1001 == 0:
+                save_file = {
+                    'state_dict': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                }
+                file_name = save_as + str((episode // 1000) + curr_checkpoint) + ".pth"
+                torch.save(save_file, file_name)
 
-        if (episode + 1) % 501 == 0:
-            save = {
-                'state_dict': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-            }
-            file_name = save_as + str((episode // 500) + curr_checkpoint) + ".pth"
-            torch.save(save, file_name)
-
-
-
-trainJump("models/distance_q", 0)
-
-
-'''
-Jump:
-
-state = torch.load("Jump7.pth")
-model.load_state_dict(state["state_dict"])
-optimizer.load_state_dict(state["optimizer"])
-'''

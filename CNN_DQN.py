@@ -5,11 +5,11 @@ import torch.nn.functional as F
 import random
 import time
 import math
-import numpy as np
 from collections import namedtuple
 import os
 from scoreCheck import getReward, getScore
-from preprocess import getProcessedImage, getLessProcessed
+from preprocess import getProcessedImage, getLessProcessed, getImage
+
 
 class DQN(nn.Module):
     def __init__(self, output_dim):
@@ -58,19 +58,6 @@ def select_action(state):
         return node_activated, node_activated * 50 + 300
 
 
-def test():
-    model.eval()
-    for jump in range(test_length):
-        state = torch.from_numpy(getProcessedImage()).unsqueeze(0)
-        state_shape = state.shape
-        state = state.view(state_shape[0], state_shape[3], state_shape[1], state_shape[2])
-        state = state.type('torch.FloatTensor')
-        q_calc = model(state)
-        command = "adb shell input swipe 500 500 500 500 " + str(int(torch.argmax(q_calc)) * 50 + 300)
-        os.system(command)
-        time.sleep(1)
-
-
 Transition = namedtuple('Transition',
                         ('state', 'action', 'reward'))
 
@@ -96,16 +83,14 @@ class ReplayMemory(object):
         return len(self.memory)
 
 
-memory = ReplayMemory(8)
+memory = ReplayMemory(128)
 
 learning_rate = 1e-5
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 loss_fn = nn.MSELoss()
-BATCH_SIZE = 8
+BATCH_SIZE = 32
 
 num_episodes = 5000
-
-test_length = 100
 
 
 def optimize_model():
@@ -129,70 +114,54 @@ def optimize_model():
     optimizer.step()
 
 
-def trainJump(save_as, curr_checkpoint):
+def trainJump(save, save_as=None, curr_checkpoint=None):
     model.train()
-    prev_score = 0
     for episode in range(num_episodes):
         prev_score = getScore()
         print("-----------------------------------------")
         print("Episode:", episode)
+
+        # Get state and select action based on state
         state = torch.Tensor(getLessProcessed()).unsqueeze(0)
         state_shape = state.shape
         state = state.view(state_shape[0], state_shape[3], state_shape[1], state_shape[2])
         node_activated, action = select_action(state)
         os.system("adb shell input swipe 500 500 500 500 " + str(action))
-        # optimize_model()  # Optimize here to save time
-        time.sleep(0.5)
+
+        optimize_model()  # Optimize here to save time
+
+        # Get actual reward and push state, node_activated, and actual_reward to memory
         actual_reward = getReward(prev_score)
-        # print("Node Activated:", node_activated, "Action:", action)
+        print("Node Activated:", node_activated, "Action:", action)
         if actual_reward >= 2:
             actual_reward = 10
-            prev_score = getScore()
         elif actual_reward < 0:
-            prev_score = 0
-            time.sleep(1.9)
-            os.system("adb shell input tap 550 1700")
-            time.sleep(0.4)
-        else:
-            prev_score = getScore()
+            onDeath()
+        memory.push(state, node_activated, actual_reward)
 
-        # memory.push(state, node_activated, actual_reward)
+        # Print predicted and actual rewards
         predicted_reward = model(state).view(16)[node_activated]
         print("Predicted Reward:", float(predicted_reward), "Actual Reward:", actual_reward)
-        loss = loss_fn(actual_reward, predicted_reward)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
         print("-----------------------------------------")
 
-        # Make sure things are fine
-        '''
-        things = [i for i in range(5)]
-        if (episode % 1000) in things:
-            print("Episode", episode)
-            print("Reward:", actual_reward)
-        '''
-
-        if (episode + 1) % 1001 == 0:
-            save = {
-                'state_dict': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-            }
-            file_name = save_as + str((episode // 1000) + curr_checkpoint) + ".pth"
-            torch.save(save, file_name)
+        if save:
+            if (episode + 1) % 1001 == 0:
+                save_file = {
+                    'state_dict': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                }
+                file_name = save_as + str((episode // 1000) + curr_checkpoint) + ".pth"
+                torch.save(save_file, file_name)
 
 
-#save = torch.load("models/CNN_DQN5.pth")
-#model.load_state_dict(save['state_dict'])
-#optimizer.load_state_dict(save['optimizer'])
-
-#trainJump("models/CNN_DQN", 6)
-
-
-'''
-Jump:
-
-state = torch.load("Jump7.pth")
-model.load_state_dict(state["state_dict"])
-optimizer.load_state_dict(state["optimizer"])
-'''
+def onDeath():
+    time.sleep(1.9)
+    if getScore() == -10:
+        os.system("adb shell input tap 550 1700")
+        time.sleep(0.5)
+    else:  # Sometimes a weird pop up will come up, this closes it
+        image = getImage()
+        if (image[1000, 200] == [255, 255, 255]).all():
+            os.system("adb shell input tap 200 1400")
+            time.sleep(0.1)
+            os.system("adb shell input tap 550 1700")

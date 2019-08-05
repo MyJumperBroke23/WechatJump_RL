@@ -9,7 +9,7 @@ import time
 import os
 from scoreCheck import getReward, getScore
 from preprocess import getLessProcessed, getImage
-
+from CNN_DQN import onDeath
 
 class CNN_Policy(nn.Module):
     def __init__(self, output_dim):
@@ -82,10 +82,12 @@ class PPO:
                 new_prob = dist.log_prob(actions[i])
 
                 r = torch.exp(new_prob - old_probs[i])
+
+                # Loss follows the PPO loss of the (new prob of action / old prob of action) * reward clamped between 2 values
                 actor_loss = -min(r * rewards[i],
                                   torch.clamp(r, 1-self.clip_factor, 1+self.clip_factor) * rewards[i])
 
-                actor_loss = actor_loss - (0.01 * dist_entropy)
+                actor_loss = actor_loss - (0.01 * dist_entropy) # Small bonus for entropy
 
                 self.optimizer.zero_grad()
                 actor_loss.backward()
@@ -99,7 +101,7 @@ class PPO:
     def load_agent(self, load):
         save = torch.load(load)
         self.model.load_state_dict(save["state_dict"])
-        #self.optimizer.load_state_dict(save["optimizer"])
+        self.optimizer.load_state_dict(save["optimizer"])
 
 
 disc = 0.99
@@ -117,7 +119,7 @@ final_variance = 1
 variance_decay = 5000
 
 
-def trainJump(save_as, curr_checkpoint):
+def trainJump(save, save_as=None, curr_checkpoint=None):
     Agent.model.eval()
     for episode in range(num_episodes):
         time.sleep(1.2)
@@ -128,14 +130,17 @@ def trainJump(save_as, curr_checkpoint):
             print("-----------------------------------------")
             print("Episode:", episode)
 
+        # Get state
         state = torch.Tensor(getLessProcessed()).unsqueeze(0)
         state_shape = state.shape
         state = state.view(state_shape[0], state_shape[3], state_shape[1], state_shape[2])
 
+        # Calculate mean and variance
         mean = Agent.a2c(state)
         variance = final_variance + (initial_variance - final_variance) * \
                         math.exp(-1. * episode / variance_decay)
 
+        # Construct normal distribution and sample action
         if episode % 10 == 0:
             print("Mean:", float(mean), "Deviation:", float(variance))
         m = Normal(mean, variance)
@@ -144,6 +149,8 @@ def trainJump(save_as, curr_checkpoint):
         if episode % 10 == 0:
             print("Action:", action)
         os.system("adb shell input swipe 500 500 500 500 " + str(int(action)))
+
+        # Get reward and push action, state, log_prob, and reward to action
         time.sleep(0.5)
         reward = getReward(prev_score)
         if reward >= 2:
@@ -159,25 +166,12 @@ def trainJump(save_as, curr_checkpoint):
         if episode % 10 == 0:
             print("-----------------------------------------")
 
+        # Optimize model
         if (episode + 1) % (k+1) == 0:
             Agent.optimize_model(k, variance)
 
-        if (episode + 1) % 1001 == 0:
-            Agent.save_agent(save_as + str(curr_checkpoint + (episode // 1000)) + ".pth")
+        if save:
+            if (episode + 1) % 1001 == 0:
+                Agent.save_agent(save_as + str(curr_checkpoint + (episode // 1000)) + ".pth")
 
 
-def onDeath():
-    time.sleep(1.9)
-    if getScore() == -10:
-        os.system("adb shell input tap 550 1700")
-        time.sleep(0.5)
-    else:
-        image = getImage()
-        thing = image[1000, 200] == [255, 255, 255]
-        if (thing[0] == True and thing[1] == True and thing[2] == True):
-            os.system("adb shell input tap 100 1400")
-            time.sleep(0.1)
-            os.system("adb shell input tap 550 1700")
-
-
-trainJump("models/PPO_", 6)
